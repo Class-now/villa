@@ -8,7 +8,6 @@ from __future__ import annotations
 import argparse
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from contextlib import contextmanager
-import fcntl
 import itertools
 import json
 import math
@@ -18,6 +17,11 @@ import subprocess
 import sys
 import threading
 import time
+
+if sys.platform == "win32":
+    import msvcrt
+else:
+    import fcntl
 
 from . import fiber_trace as ft
 from .fiber_evaluation import CHUNK_KEYS, _keys, _settings
@@ -85,10 +89,20 @@ def output_lock(output):
     # Persistent lock inode, not a done marker. Removing it would permit two
     # owners of different inodes. flock releases automatically even on a crash.
     with (output / ".writer.lock").open("a") as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as exc:
-            raise RuntimeError(f"another writer owns {output}") from exc
+        if sys.platform == "win32":
+            # No flock on Windows: lock byte 0 of the same file instead. The
+            # region lock is per handle and the OS drops it when the handle
+            # closes, including on a crash, like flock.
+            lock.seek(0)
+            try:
+                msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+            except OSError as exc:
+                raise RuntimeError(f"another writer owns {output}") from exc
+        else:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                raise RuntimeError(f"another writer owns {output}") from exc
         yield
 
 
