@@ -1,6 +1,7 @@
 """Storage integration: Zarr metadata, file transport, caches, registration."""
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 import base64
 import hashlib
 import http.server
@@ -537,7 +538,7 @@ class RemoteTests(RemoteFixtureCase):
                     np.testing.assert_array_equal(result, self.data+i)
                 self.assertFalse(barrier.broken)
                 self.assertEqual(list(cache.rglob('*.tmp.*')), [])
-                with sqlite3.connect(cache/'.vc_reader_cache.sqlite3') as db:
+                with closing(sqlite3.connect(cache/'.vc_reader_cache.sqlite3')) as db:
                     self.assertEqual(db.execute('select count(*) from downloads').fetchone()[0], 0)
 
     def test_unsized_download_on_an_unlimited_budget_evicts_nothing(self):
@@ -593,7 +594,7 @@ class RemoteTests(RemoteFixtureCase):
         with self.assertRaisesRegex(RuntimeError, 'cache_max_bytes'):
             read_remote_source(Source('unsized', Storage(self.url+'/unsized.png', 'png')), options)
         self.assertEqual(list(self.cache.rglob('*.tmp.*')), [])
-        with sqlite3.connect(self.cache/'.vc_reader_cache.sqlite3') as db:
+        with closing(sqlite3.connect(self.cache/'.vc_reader_cache.sqlite3')) as db:
             self.assertEqual(db.execute('select count(*) from downloads').fetchone()[0], 0)
 
     def test_concurrent_unsized_downloads_on_a_small_budget_all_finish(self):
@@ -623,7 +624,7 @@ class RemoteTests(RemoteFixtureCase):
         # The refused download took nothing with it: no eviction, no temporary, no reservation.
         self.assertEqual(len(cached_files(self.cache)), 1)
         self.assertEqual(list(self.cache.rglob('*.tmp.*')), [])
-        with sqlite3.connect(self.cache/'.vc_reader_cache.sqlite3') as db:
+        with closing(sqlite3.connect(self.cache/'.vc_reader_cache.sqlite3')) as db:
             self.assertEqual(db.execute('select count(*) from downloads').fetchone()[0], 0)
         # The same floor refuses an unsized (chunked) response at its first growth.
         def hook(handler):
@@ -666,7 +667,7 @@ class RemoteTests(RemoteFixtureCase):
         self.assertEqual(self.counts.get('/image.png'), 1)  # counted after the hook's rewrite
         self.assertEqual(len(cached_files(self.cache)), 1)
         self.assertEqual(list(self.cache.rglob('*.tmp.*')), [])
-        with sqlite3.connect(self.cache/'.vc_reader_cache.sqlite3') as db:
+        with closing(sqlite3.connect(self.cache/'.vc_reader_cache.sqlite3')) as db:
             self.assertEqual(db.execute('select count(*) from downloads').fetchone()[0], 0)
 
     def test_live_download_survives_another_cache_owner_and_budget_pressure(self):
@@ -703,7 +704,7 @@ class RemoteTests(RemoteFixtureCase):
                 # as a newly started worker, while the first transfer is live.
                 owner = _reader.DiskCache(str(self.cache), -1)
                 self.assertTrue(temporary[0].exists())
-                with sqlite3.connect(self.cache/'.vc_reader_cache.sqlite3') as db:
+                with closing(sqlite3.connect(self.cache/'.vc_reader_cache.sqlite3')) as db:
                     reserved = db.execute('select sum(size) from downloads').fetchone()[0]
                     self.assertEqual(reserved, len(payload))
                 with self.assertRaisesRegex(RuntimeError, 'active download'):
@@ -716,7 +717,7 @@ class RemoteTests(RemoteFixtureCase):
                     time.sleep(.01)
                 self.assertEqual(self.counts.get('/image.png'), 1)
                 self.assertFalse(second.done())
-                with sqlite3.connect(self.cache/'.vc_reader_cache.sqlite3') as db:
+                with closing(sqlite3.connect(self.cache/'.vc_reader_cache.sqlite3')) as db:
                     total, limit = db.execute('select total,max_bytes from budget').fetchone()
                     reserved = db.execute('select sum(size) from downloads').fetchone()[0]
                     self.assertLessEqual(total+reserved, limit)
@@ -758,13 +759,13 @@ class RemoteTests(RemoteFixtureCase):
             process.terminate()
             process.join(5)
             self.assertFalse(process.is_alive())
-            with sqlite3.connect(self.cache/'.vc_reader_cache.sqlite3') as db:
+            with closing(sqlite3.connect(self.cache/'.vc_reader_cache.sqlite3')) as db:
                 self.assertEqual(db.execute('select sum(size) from downloads').fetchone()[0], len(payload))
             other = Source('other', Storage(self.url+'/image.png', 'png'))
             # Reuse the already-open parent cache, so admission (not startup)
             # must reclaim the dead worker's reservation to make progress.
             np.testing.assert_array_equal(read_remote_source(other, dict(cache_dir=self.cache)), self.data)
-            with sqlite3.connect(self.cache/'.vc_reader_cache.sqlite3') as db:
+            with closing(sqlite3.connect(self.cache/'.vc_reader_cache.sqlite3')) as db:
                 self.assertEqual(db.execute('select count(*) from downloads').fetchone()[0], 0)
             self.assertEqual(list(self.cache.rglob('*.tmp.*')), [])
         finally:
@@ -897,7 +898,7 @@ class RemoteTests(RemoteFixtureCase):
             np.testing.assert_array_equal(reader.read((0, 0), (5, 7)), self.data)
         self.assertTrue(Path(decoded_cache_path(self.cache, self.url+'/image.png')).is_file())
         _reader.DiskCache(str(self.cache), -1)  # a new owner reconciles the index
-        with sqlite3.connect(self.cache/'.vc_reader_cache.sqlite3') as db:
+        with closing(sqlite3.connect(self.cache/'.vc_reader_cache.sqlite3')) as db:
             self.assertEqual(db.execute('select total from budget').fetchone()[0], len(payload))
         Image.fromarray(self.data+1).save(self.root/'other.png')
         other = Source('other', Storage(self.url+'/other.png', 'png'))
@@ -964,7 +965,7 @@ class RemoteTests(RemoteFixtureCase):
         with source.open(cache_dir=self.cache) as reader:
             np.testing.assert_array_equal(reader.read((0, 0), (5, 7)), self.data)
         import sqlite3
-        with sqlite3.connect(self.cache/'.vc_reader_cache.sqlite3') as db:
+        with closing(sqlite3.connect(self.cache/'.vc_reader_cache.sqlite3')) as db:
             total, maximum = db.execute('select total,max_bytes from budget').fetchone()
             self.assertLessEqual(total, maximum)
             self.assertEqual(maximum, limit)
