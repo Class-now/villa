@@ -167,8 +167,17 @@ inline void bind(nb::module_& m)
         .def("abandon", &Writer::abandon, nb::call_guard<nb::gil_scoped_release>())
         .def("__enter__", [](nb::handle self) { return nb::borrow(self); })
         .def("__exit__", [](Writer& w, nb::handle type, nb::handle, nb::handle) {
-            if (type.is_none()) w.finish();
-            else w.abandon();
+            if (!type.is_none()) {
+                w.abandon();
+                return;
+            }
+            // A failed finish must not leave the temporary open: Windows cannot delete an open file.
+            try {
+                w.finish();
+            } catch (...) {
+                w.abandon();
+                throw;
+            }
         }, nb::arg().none(), nb::arg().none(), nb::arg().none());
 
     m.def("_tifxyz_full_extent", &fullExtent, "stored"_a, "scale"_a);
