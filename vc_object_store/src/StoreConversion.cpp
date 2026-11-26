@@ -69,7 +69,8 @@ void changeHistoryMode(const std::filesystem::path& input, HistoryMode mode)
     OwnershipGuard ownership(path, OwnershipGuard::Mode::Service);
     auto source=exclusive(path,kSchemaVersion);
     const bool enabled=mode==HistoryMode::On;
-    Statement policy(source.get(),"SELECT history_enabled,sealed,spatial_enabled,commit_sequence,generation FROM store_manifest"); policy.row();
+    auto policyRow=std::make_unique<Statement>(source.get(),"SELECT history_enabled,sealed,spatial_enabled,commit_sequence,generation FROM store_manifest");
+    auto& policy=*policyRow; policy.row();
     if (policy.i64(1)) throw std::runtime_error("history policy: sealed stores require a new export");
     if ((policy.i64(0)!=0)==enabled) return;
     if (policy.i64(3)==INT64_MAX) throw std::runtime_error("history policy: commit sequence exhausted");
@@ -248,6 +249,13 @@ void changeHistoryMode(const std::filesystem::path& input, HistoryMode mode)
         auto verified=ObjectStore::open(staged.path,OpenOptions{.readOnly=true}); auto read=verified.read();
         if (verified.provisioning(read).history!=mode) throw std::runtime_error("history policy: reopen failed");
     }
+#ifdef _WIN32
+    // Windows cannot replace a file that still has an open handle without
+    // FILE_SHARE_DELETE (MoveFileEx fails with ERROR_ACCESS_DENIED). The
+    // service-mode ownership guard still excludes every library writer.
+    // sqlite3_close_v2 keeps the file open while any statement is alive.
+    policyRow.reset(); sourceChunks.reset(); source.reset();
+#endif
     vcr::platform::replace_file(staged.path,path,true);
     vcr::platform::sync_directory(path.parent_path(),"vcobj history policy");
 }

@@ -2,6 +2,7 @@
 import sqlite3
 import json
 import uuid
+from contextlib import closing
 
 import pytest
 
@@ -30,7 +31,7 @@ def test_reduced_uuid_edge_layout_and_optional_adjacency(tmp_path):
             db.set_meta(edge, "manual", True)
         with pytest.raises(RuntimeError, match="not supported"):
             db.set_approval(edge, "approved")
-    with sqlite3.connect(path) as sql:
+    with closing(sqlite3.connect(path)) as sql:
         assert {row[1] for row in sql.execute("PRAGMA table_info(edges)")} == {
             "uuid", "a_uuid", "b_uuid", "kind", "commit_sequence"}
         assert "WITHOUT ROWID" in sql.execute(
@@ -109,7 +110,7 @@ def test_history_off_spatial_off_and_atomic_seal(tmp_path):
         assert db.database_identity() == identity
         assert raw(db, db.current_geometry(a)["uuid"], "line_points") == data
         assert not db.provisioning()["history_enabled"]
-    with sqlite3.connect(path) as sql:
+    with closing(sqlite3.connect(path)) as sql:
         names = {row[0] for row in sql.execute("SELECT name FROM sqlite_schema WHERE type='table'")}
     assert not names.intersection({"journal", "object_revisions", "relationship_revisions", "object_bounds"})
     with pytest.raises(RuntimeError, match="sealed"):
