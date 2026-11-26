@@ -2,8 +2,15 @@
 #include "disk_cache.hpp"
 
 namespace vcr::zarr {
-std::shared_ptr<DiskCache> diskBudget(const std::string& root, std::optional<std::int64_t> maxBytes)
+std::shared_ptr<DiskCache> diskBudget(const std::string& rootSpelling, std::optional<std::int64_t> maxBytes)
 {
+#ifdef _WIN32
+    // "E:/x/cache" and "E:\x\cache" name one directory: key both spellings to one index,
+    // or a floor or limit set through one of them is missed by readers using the other.
+    const auto root = std::filesystem::path(rootSpelling).lexically_normal().make_preferred().string();
+#else
+    const auto& root = rootSpelling;
+#endif
     static std::mutex mutex;
     static std::map<std::string, std::shared_ptr<DiskCache>> budgets;
     static pid_t owner = getpid();

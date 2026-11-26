@@ -960,7 +960,7 @@ class RemoteTests(RemoteFixtureCase):
         with zarr.open(cache_dir=self.cache) as reader:
             np.testing.assert_array_equal(reader.read((0, 0), (5, 7)), self.data)
             opened = reader._engine().zarr_array()
-            self.assertEqual(opened.layers[opened.writer].budget_root, str(self.cache))
+            self.assertEqual(Path(opened.layers[opened.writer].budget_root), self.cache)
         with source.open(cache_dir=self.cache) as reader:
             np.testing.assert_array_equal(reader.read((0, 0), (5, 7)), self.data)
         import sqlite3
