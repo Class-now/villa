@@ -726,9 +726,19 @@ class OrderedTwoStageSamplePipeline:
             f"{exc_type}: {detail}\n{trace}"
         )
 
+    @staticmethod
+    def _pending(connection: Any) -> bool:
+        # On Windows, poll() on a pipe whose writer has exited and been drained
+        # raises BrokenPipeError instead of reporting EOF; treat both as "no more
+        # messages" so the caller falls through to the exit-code checks.
+        try:
+            return bool(connection.poll())
+        except (BrokenPipeError, EOFError):
+            return False
+
     def _read_controls(self) -> None:
         for connection in self.controls:
-            while connection.poll():
+            while self._pending(connection):
                 try:
                     message = connection.recv()
                 except EOFError:
@@ -742,7 +752,7 @@ class OrderedTwoStageSamplePipeline:
         expected = len(self.processes)
         while len(ready) < expected:
             for connection in self.controls:
-                while connection.poll():
+                while self._pending(connection):
                     try:
                         message = connection.recv()
                     except EOFError:
