@@ -13,6 +13,12 @@
 #ifdef __APPLE__
 #include <mach/mach.h>
 #endif
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 namespace vcr::memory {
 inline std::optional<std::uint64_t> number(const std::filesystem::path& path)
@@ -128,8 +134,16 @@ inline std::uint64_t available_bytes()
         throw std::runtime_error("cannot query available memory for auto cache");
     // Conservative reclaimable estimate; do not count compressed/swap memory.
     return (std::uint64_t(stats.free_count) + stats.inactive_count) * page;
+#elif defined(_WIN32)
+    // Free plus standby pages, without the paging file (swap is not counted
+    // on Linux or macOS either).
+    MEMORYSTATUSEX status{};
+    status.dwLength = sizeof(status);
+    if (!GlobalMemoryStatusEx(&status))
+        throw std::runtime_error("cannot query available memory for auto cache");
+    return status.ullAvailPhys;
 #else
-    throw std::runtime_error("auto memory cache is supported on Linux and macOS");
+    throw std::runtime_error("auto memory cache is supported on Linux, macOS and Windows");
 #endif
 }
 } // namespace vcr::memory
