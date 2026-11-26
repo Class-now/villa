@@ -695,8 +695,10 @@ bool removeNode(const fs::path& path, const Access& access)
 std::vector<std::string> nodeChildren(const fs::path& path, const Access& access)
 {
     std::vector<std::string> out;
-    for (const auto& name : Store(path, access, 1).children())
-        if (Store(path / utf8Path(name), access, 1).isNode())
+    const Store parent(path, access, 1);
+    for (const auto& name : parent.children())
+        // Remote locations are URLs: fs::path's '/' would insert '\\' on Windows.
+        if (Store(parent.remote() ? utf8Path(parent.location() + "/" + name) : path / utf8Path(name), access, 1).isNode())
             out.push_back(name);
     return out;
 }
