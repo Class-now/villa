@@ -258,6 +258,18 @@ def test_pipeline_early_close_with_saturated_queues_is_idempotent() -> None:
     assert pipeline.closed
 
 
+def test_pipeline_falls_back_to_spawn_without_forkserver(monkeypatch) -> None:
+    monkeypatch.setattr(mp, "get_all_start_methods", lambda: ["spawn"])
+    pipeline = _pipeline(multiprocessing_context="forkserver", item_count=2,
+                         stage1_workers=1, stage2_workers=1, max_in_flight=2)
+    try:
+        assert pipeline.context_name == "spawn"
+        results = [pipeline.next_ordered() for _ in range(2)]
+        assert [result.index for result in results] == [0, 1]
+    finally:
+        pipeline.close()
+
+
 def test_pipeline_can_deliver_stage_one_values_without_second_stage() -> None:
     pipeline = _pipeline(
         stage2_factory=None,

@@ -553,7 +553,11 @@ class OrderedTwoStageSamplePipeline:
         self.max_in_flight = int(max_in_flight)
         self.raw_queue_capacity = int(raw_queue_capacity)
         self.no_progress_timeout_seconds = float(no_progress_timeout_seconds)
-        self.context_name = str(multiprocessing_context)
+        context_name = str(multiprocessing_context)
+        if context_name == "forkserver" and context_name not in mp.get_all_start_methods():
+            # Windows has no forkserver start method; spawn is its only one.
+            context_name = "spawn"
+        self.context_name = context_name
         self.context = mp.get_context(self.context_name)
         self.raw_queue = self.context.Queue(maxsize=int(raw_queue_capacity))
         self.result_queue = self.context.Queue(maxsize=int(result_queue_capacity))
