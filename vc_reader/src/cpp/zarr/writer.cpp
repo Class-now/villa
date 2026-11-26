@@ -12,6 +12,7 @@
 #include <charconv>
 #include <cstring>
 #include <fstream>
+#include <optional>
 #include <sstream>
 #include <string_view>
 #include <unistd.h>
@@ -278,12 +279,12 @@ struct Writer::Impl {
     bool patchShard(const fs::path& file, std::size_t target, const std::vector<std::uint8_t>* replacement)
     {
         const auto& layout = *shards;
-        LocalShard previous(file, layout);
+        std::optional<LocalShard> previous(std::in_place, file, layout);
         bool existed = false;
         std::size_t remaining = 0;
-        if (!previous.index.empty()) {
+        if (!previous->index.empty()) {
             for (std::size_t i = 0; i < layout.indexBytes / 16; ++i) {
-                const bool present = layout.entry(previous.index, i, previous.total).has_value();
+                const bool present = layout.entry(previous->index, i, previous->total).has_value();
                 if (i == target) existed = present;
                 else remaining += present;
             }
@@ -293,7 +294,8 @@ struct Writer::Impl {
             fs::remove(file);
             return true;
         }
-        detail::atomicWriteFile(file, [&](std::ostream& out) {
+        std::ostringstream out;
+        {
             std::vector<std::uint8_t> index(layout.indexBytes, 255), buffer;
             if (!layout.indexEnd)
                 out.write(reinterpret_cast<const char*>(index.data()), std::streamsize(index.size()));
@@ -302,7 +304,7 @@ struct Writer::Impl {
                 if (i == target) {
                     if (!replacement) continue;
                 } else {
-                    if (!previous.readEntry(i, buffer)) continue;
+                    if (!previous->readEntry(i, buffer)) continue;
                     payload = &buffer;
                 }
                 const auto offset = out.tellp();
@@ -316,7 +318,11 @@ struct Writer::Impl {
                 putLittle(index.data() + index.size() - 4, crc32c(index.data(), index.size() - 4), 4);
             if (!layout.indexEnd) out.seekp(0);
             out.write(reinterpret_cast<const char*>(index.data()), std::streamsize(index.size()));
-        });
+        }
+        if (!out) throw std::runtime_error("cannot write " + utf8String(file));
+        // Close the old shard before replacing it: Windows refuses to replace a file that is still open.
+        previous.reset();
+        atomicWrite(file, out.str());
         return existed;
     }
 };
