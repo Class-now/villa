@@ -44,6 +44,37 @@ Use `VC_READER_ENABLE_CUDA=ON` to require CUDA and fail if it is unavailable.
 Explicit settings persist in the CMake build cache, so pass `ON` to enable
 CUDA after a previous CPU-only build.
 
+### Windows (MSYS2 UCRT64)
+
+On Windows, build in an MSYS2 **UCRT64** shell (the toolchain used by
+`vc3d-windows.yml`); Visual Studio builds are not covered here. Install the
+compiler and native dependencies with `pacman`, then build from a virtual
+environment that can see the MSYS2 NumPy:
+
+```bash
+pacman -S --needed mingw-w64-ucrt-x86_64-{gcc,cmake,ninja,pkgconf,python,python-pip,python-numpy,python-pillow,python-yaml,boost,opencv,curl,sqlite3,blosc,blosc2,concurrentqueue,nlohmann-json}
+python -m venv --system-site-packages venv && source venv/bin/activate
+python -m pip install scikit-build-core nanobind
+python -m pip install --no-build-isolation -e .
+```
+
+Some MSYS2 `.pc` files (for example `blosc2.pc`) hard-code
+`libdir=/ucrt64/lib` and `includedir=/ucrt64/include`. Native CMake cannot
+resolve those MSYS paths and stops with `includes non-existent path
+"/ucrt64/include"`. Put rewritten copies first on `PKG_CONFIG_PATH`:
+
+```bash
+mkdir -p pc-overlay
+for f in /ucrt64/lib/pkgconfig/*.pc; do
+  grep -qE '^(libdir|includedir|exec_prefix)=/ucrt64' "$f" &&
+    sed -E "s#^(libdir|includedir|exec_prefix)=/ucrt64#\1=$(cygpath -m /ucrt64)#" "$f" > "pc-overlay/$(basename "$f")"
+done
+export PKG_CONFIG_PATH="$PWD/pc-overlay:$PKG_CONFIG_PATH"
+```
+
+Set `CMAKE_BUILD_PARALLEL_LEVEL` (for example to 3) if the build runs out of
+memory.
+
 This builds and installs the compiled extensions. The reader notebook needs NumPy
 and Pillow. The surface and training notebooks also need the `labels`
 dependencies (including tifffile),
